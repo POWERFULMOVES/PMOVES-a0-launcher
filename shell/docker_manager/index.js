@@ -3033,6 +3033,36 @@ function parseEnvText(value) {
   return env;
 }
 
+
+const AUTH_LOGIN_KEY = 'AUTH_LOGIN';
+const AUTH_PASSWORD_KEY = 'AUTH_PASSWORD';
+
+// A login gate with AUTH_LOGIN but no AUTH_PASSWORD cannot authenticate any
+// password (the framework compares the submitted password against an unset
+// value). Pairing is enforced at creation so an unclosable gate can never be
+// shipped to a new Instance.
+function assertAuthPairing(env) {
+  const keys = new Set(env.map((line) => envLineKey(line)).filter(Boolean));
+  if (keys.has(AUTH_LOGIN_KEY) && !keys.has(AUTH_PASSWORD_KEY)) {
+    const err = new Error(`${AUTH_LOGIN_KEY} requires a paired ${AUTH_PASSWORD_KEY}; a login without a password cannot authenticate`);
+    err.code = 'INVALID_ENV_VARS';
+    throw err;
+  }
+}
+
+function withPairedAuthCredentials(env, credentials) {
+  const username = credentials && typeof credentials.username === 'string' ? credentials.username.trim() : '';
+  const password = credentials && typeof credentials.password === 'string' ? credentials.password : '';
+  if (!username || !password) return env;
+  const filtered = env.filter((line) => {
+    const key = envLineKey(line);
+    return key !== AUTH_LOGIN_KEY && key !== AUTH_PASSWORD_KEY;
+  });
+  filtered.push(`${AUTH_LOGIN_KEY}=${username}`);
+  filtered.push(`${AUTH_PASSWORD_KEY}=${password}`);
+  return filtered;
+}
+
 function parseMountsText(value) {
   const raw = typeof value === 'string' ? value : '';
   const entries = raw.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
@@ -3113,7 +3143,10 @@ function normalizeActivationOptions(options = {}, tag = '', random = Math.random
   return {
     instanceName: sanitizeInstanceName(raw.instanceName, fallbackName),
     portMappings: hasPortMappings ? parsePortMappings(raw.portMappings) : null,
-    env: parseEnvText(raw.envText),
+    env: withPairedAuthCredentials(
+      (() => { const e = parseEnvText(raw.envText); assertAuthPairing(e); return e; })(),
+      normalizeActivationCredentials(raw)
+    ),
     storage: normalizeStorageOverride(raw),
     credentials: normalizeActivationCredentials(raw),
     hostAccess: isPlainObject(raw.hostAccess)
@@ -3131,7 +3164,7 @@ function normalizeCustomImageOptions(options = {}) {
     ...spec,
     instanceName: sanitizeInstanceName(raw.instanceName, fallbackName),
     portMappings: hasPortMappings ? parsePortMappings(raw.portMappings) : parsePortMappings('0:80'),
-    env: parseEnvText(raw.envText),
+    env: (() => { const e = parseEnvText(raw.envText); assertAuthPairing(e); return e; })(),
     binds: parseMountsText(raw.mountsText),
     storage: normalizeStorageOverride(raw),
     pull: raw.pull !== false
