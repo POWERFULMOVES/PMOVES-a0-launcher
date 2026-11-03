@@ -305,8 +305,24 @@ function normalizeRepo(value) {
   return '';
 }
 
+// Image repo override may be registry-qualified (e.g. ghcr.io/owner/name or
+// localhost:5000/owner/name). Host must contain a dot, a port, or be
+// 'localhost' so bare 3-segment paths stay rejected. Github release-repo
+// override keeps using normalizeRepo (github.com owner/name only).
+function normalizeImageRepo(value) {
+  const v = (value || '').trim();
+  if (!v) return '';
+  if (/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(v)) return v;
+  if (
+    /^(?:(?:[a-z0-9][a-z0-9.-]*\.[a-z0-9]+|localhost|[a-z0-9][a-z0-9.-]*):[0-9]{1,5}|(?:[a-z0-9][a-z0-9.-]*\.[a-z0-9]+)|localhost)\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(v)
+  ) {
+    return v;
+  }
+  return '';
+}
+
 function getBackendImageRepo() {
-  const fromEnv = normalizeRepo(process.env[IMAGE_REPO_ENV_VAR]);
+  const fromEnv = normalizeImageRepo(process.env[IMAGE_REPO_ENV_VAR]);
   if (fromEnv) return fromEnv;
   return DEFAULT_IMAGE_REPO;
 }
