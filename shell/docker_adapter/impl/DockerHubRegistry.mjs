@@ -9,6 +9,43 @@ const HUB_API_BASE_URL = 'https://hub.docker.com/v2/repositories';
 const AUTH_BASE_URL = 'https://auth.docker.io';
 const LAYER_SIZES_CACHE_TTL_MS = 30 * 60 * 1000;
 
+// Registry-aware endpoint resolution (codex thread 4455204890 on PR #2):
+// 'owner/name' keeps Docker Hub endpoints; 'host/owner/name' (ghcr.io/...,
+// localhost:5000/...) routes manifest/token/tags endpoints to that registry.
+// 'docker.io/owner/name' normalizes back to Docker Hub.
+function splitQualifiedRepo(imageRepo) {
+  const parts = String(imageRepo || '').trim().split('/');
+  if (parts.length >= 3) {
+    const host = parts[0].toLowerCase();
+    if (host === 'localhost' || host.includes('.') || host.includes(':')) {
+      if (host === 'docker.io') return { registryHost: null, repoPath: parts.slice(1).join('/') };
+      return { registryHost: host, repoPath: parts.slice(1).join('/') };
+    }
+  }
+  return { registryHost: null, repoPath: String(imageRepo || '').trim() };
+}
+
+function registryBaseFor(imageRepo) {
+  const { registryHost } = splitQualifiedRepo(imageRepo);
+  return registryHost ? `https://${registryHost}` : REGISTRY_BASE_URL;
+}
+
+function authBaseFor(imageRepo) {
+  const { registryHost } = splitQualifiedRepo(imageRepo);
+  if (!registryHost) return AUTH_BASE_URL;
+  return `https://${registryHost}/token`;
+}
+
+function tokenServiceFor(imageRepo) {
+  const { registryHost } = splitQualifiedRepo(imageRepo);
+  return registryHost || 'registry.docker.io';
+}
+
+function registryAuthConfigName(imageRepo) {
+  const { registryHost } = splitQualifiedRepo(imageRepo);
+  return registryHost || 'docker.io';
+}
+
 const MANIFEST_ACCEPT = [
   // Keep ordering stable (DI-006)
   'application/vnd.docker.distribution.manifest.v2+json',
@@ -58,7 +95,7 @@ function parseLinkNext(headers) {
   return null;
 }
 
-function resolveLinkUrl(maybeUrl) {
+function resolveLinkUrl(maybeUrl, imageRepo) {
   if (!maybeUrl) return null;
   try {
     // Absolute URL
@@ -66,7 +103,7 @@ function resolveLinkUrl(maybeUrl) {
   } catch {
     // Relative URL
     try {
-      return new URL(maybeUrl, REGISTRY_BASE_URL).toString();
+      return new URL(maybeUrl, registryBaseFor(imageRepo)).toString();
     } catch {
       return null;
     }
@@ -74,14 +111,14 @@ function resolveLinkUrl(maybeUrl) {
 }
 
 function buildTagsListUrl(imageRepo, lastTag) {
-  const u = new URL(`${REGISTRY_BASE_URL}/v2/${imageRepo}/tags/list`);
+  const u = new URL(`${registryBaseFor(imageRepo)}/v2/${splitQualifiedRepo(imageRepo).repoPath}/tags/list`);
   u.searchParams.set('n', '100');
   if (lastTag) u.searchParams.set('last', lastTag);
   return u.toString();
 }
 
 function buildManifestUrl(imageRepo, tag) {
-  return `${REGISTRY_BASE_URL}/v2/${imageRepo}/manifests/${encodeURIComponent(tag)}`;
+  return `${registryBaseFor(imageRepo)}/v2/${splitQualifiedRepo(imageRepo).repoPath}/manifests/${encodeURIComponent(tag)}`;
 }
 
 function buildHubTagUrl(imageRepo, tag) {
@@ -93,9 +130,10 @@ function buildHubTagUrl(imageRepo, tag) {
 }
 
 function buildTokenUrl(imageRepo) {
-  const u = new URL(`${AUTH_BASE_URL}/token`);
-  u.searchParams.set('service', 'registry.docker.io');
-  u.searchParams.set('scope', `repository:${imageRepo}:pull`);
+  const { repoPath } = splitQualifiedRepo(imageRepo);
+  const u = new URL(authBaseFor(imageRepo));
+  u.searchParams.set('service', tokenServiceFor(imageRepo));
+  u.searchParams.set('scope', `repository:${repoPath}:pull`);
   return u.toString();
 }
 
@@ -131,14 +169,14 @@ export class DockerHubRegistry {
     this._layerSizesCache = new Map();
   }
 
-  async #getAuthHeaderBestEffort() {
-    const authConfig = await resolveDockerAuthConfigForRegistry('docker.io');
+  async #getAuthHeaderBestEffort(imageRepo) {
+    const authConfig = await resolveDockerAuthConfigForRegistry(registryAuthConfigName(imageRepo));
     return dockerBasicHeaderFromAuthConfig(authConfig);
   }
 
   async #getToken(imageRepo, forceRefresh = false) {
     const now = Date.now();
-    const basicAuth = await this.#getAuthHeaderBestEffort();
+    const basicAuth = await this.#getAuthHeaderBestEffort(imageRepo);
     const key = `${imageRepo}|${basicAuth ? 'auth' : 'anon'}`;
 
     if (!forceRefresh) {
@@ -255,7 +293,7 @@ export class DockerHubRegistry {
         const pageTags2 = Array.isArray(json2?.tags) ? json2.tags : [];
         tags.push(...pageTags2);
 
-        const nextLink2 = resolveLinkUrl(parseLinkNext(res2.headers));
+        const nextLink2 = resolveLinkUrl(parseLinkNext(res2.headers), repo);
         if (nextLink2) {
           if (nextLink2 === currentUrl) {
             throw makeError('REGISTRY_PAGINATION_ERROR', 'Registry pagination did not advance (next link loop)', {
@@ -289,7 +327,7 @@ export class DockerHubRegistry {
       const pageTags = Array.isArray(json?.tags) ? json.tags : [];
       tags.push(...pageTags);
 
-      const nextLink = resolveLinkUrl(parseLinkNext(res.headers));
+      const nextLink = resolveLinkUrl(parseLinkNext(res.headers), repo);
       if (nextLink) {
         if (nextLink === currentUrl) {
           throw makeError('REGISTRY_PAGINATION_ERROR', 'Registry pagination did not advance (next link loop)', {

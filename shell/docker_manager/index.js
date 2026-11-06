@@ -3070,6 +3070,11 @@ function withPairedAuthCredentials(env, credentials) {
   const username = credentials && typeof credentials.username === 'string' ? credentials.username.trim() : '';
   const password = credentials && typeof credentials.password === 'string' ? credentials.password : '';
   if (!username || !password) return env;
+  const keys = new Set(env.map((line) => envLineKey(line)).filter(Boolean));
+  // Explicit complete pair wins (same precedence as mergeGeneratedEnvText in
+  // run-instance-dialog.js): only complete a MISSING pair, never replace one
+  // the operator typed into Advanced env (codex thread 4427107771 on PR #1).
+  if (keys.has(AUTH_LOGIN_KEY) && keys.has(AUTH_PASSWORD_KEY)) return env;
   const filtered = env.filter((line) => {
     const key = envLineKey(line);
     return key !== AUTH_LOGIN_KEY && key !== AUTH_PASSWORD_KEY;
@@ -3176,11 +3181,19 @@ function normalizeCustomImageOptions(options = {}) {
   const spec = assertCustomImageSpec(raw);
   const fallbackName = defaultManagedInstanceName();
   const hasPortMappings = typeof raw.portMappings === 'string' && raw.portMappings.trim();
+  // AUTH pairing is an Agent Zero framework semantic; third-party images may
+  // use AUTH_LOGIN/AUTH_PASSWORD with unrelated meanings, so only enforce the
+  // pair on managed Agent Zero repos (codex thread 4427107760 on PR #1).
+  const isManagedAgentZeroRepo = spec.imageRepo === DEFAULT_IMAGE_REPO || spec.imageRepo === getBackendImageRepo();
   return {
     ...spec,
     instanceName: sanitizeInstanceName(raw.instanceName, fallbackName),
     portMappings: hasPortMappings ? parsePortMappings(raw.portMappings) : parsePortMappings('0:80'),
-    env: (() => { const e = parseEnvText(raw.envText); assertAuthPairing(e); return e; })(),
+    env: (() => {
+      const e = parseEnvText(raw.envText);
+      if (isManagedAgentZeroRepo) assertAuthPairing(e);
+      return e;
+    })(),
     binds: parseMountsText(raw.mountsText),
     storage: normalizeStorageOverride(raw),
     pull: raw.pull !== false
@@ -6434,6 +6447,8 @@ async function getContainerUiUrl(containerId, options = {}) {
 module.exports = {
   // Config
   getBackendImageRepo,
+  assertAuthPairing,
+  withPairedAuthCredentials,
   getBackendGithubRepo,
   imageRefForTag,
 
