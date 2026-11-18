@@ -1,7 +1,7 @@
 const assert = require('node:assert/strict');
 const { test } = require('node:test');
 
-const { normalizeActivationOptions, normalizeCustomImageOptions } = require('./index');
+const { normalizeActivationOptions, normalizeCustomImageOptions } = require('./index')._test;
 
 test('custom third-party image may carry lone AUTH_LOGIN (pairing not enforced)', () => {
   const out = normalizeCustomImageOptions({

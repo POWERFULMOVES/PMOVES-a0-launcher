@@ -32,7 +32,7 @@ function registryBaseFor(imageRepo) {
 
 function authBaseFor(imageRepo) {
   const { registryHost } = splitQualifiedRepo(imageRepo);
-  if (!registryHost) return AUTH_BASE_URL;
+  if (!registryHost) return `${AUTH_BASE_URL}/token`;
   return `https://${registryHost}/token`;
 }
 
