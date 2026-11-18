@@ -108,7 +108,7 @@ if (require('electron-squirrel-startup')) {
 }
 
 // Constants
-const DEFAULT_GITHUB_REPO = 'agent0ai/a0-launcher';
+const DEFAULT_GITHUB_REPO = 'POWERFULMOVES/PMOVES-a0-launcher';
 const BUILD_INFO_FILE = path.join(__dirname, 'build-info.json');
 const GITHUB_REPO_ENV_VAR = 'A0_LAUNCHER_GITHUB_REPO';
 const LOCAL_REPO_ENV_VAR = 'A0_LAUNCHER_LOCAL_REPO';

@@ -52,8 +52,8 @@
     "npmRebuild": false,
     "publish": {
       "provider": "github",
-      "owner": "agent0ai",
-      "repo": "a0-launcher",
+      "owner": "POWERFULMOVES",
+      "repo": "PMOVES-a0-launcher",
       "releaseType": "release"
     },
     "files": [
