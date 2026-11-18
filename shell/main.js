@@ -34,6 +34,7 @@ const {
   instanceContextMenuActions,
   reloadInstanceWebContents,
   isInstanceTabReloadShortcut,
+  instanceTabZoomDelta,
   instanceTabShortcutTarget,
   embeddedInstanceContentBounds,
   detachedInstanceContentBounds
@@ -1422,7 +1423,9 @@ function createWindow(mode = 'splash') {
   mainWindowMode = mode;
   mainWindowCreatedAt = Date.now();
   attachWindowDiagnostics(windowRef);
-  if (!isSplash) windowRef.on('resize', applyActiveInstanceTabBounds);
+  if (!isSplash) {
+    for (const event of ['resize', 'focus', 'restore']) windowRef.on(event, applyActiveInstanceTabBounds);
+  }
 
   const loadPromise = isSplash
     ? windowRef.loadFile(path.join(__dirname, 'loading.html')).catch((error) => {
@@ -1923,7 +1926,7 @@ async function startHostGatewayForTab(tab, { force = false } = {}) {
   if (!workspace.path) {
     setTabHostAccess(tab, hostAccessStatus('needs_action', {
       code: 'HOST_FOLDER_REQUIRED',
-      message: 'Choose a folder for files and commands.'
+      message: 'Choose a local folder for files and commands.'
     }), config);
     return null;
   }
@@ -2160,6 +2163,7 @@ function applyDetachedInstanceBounds(tab) {
       detachedWindow.getContentBounds(),
       tab.detachedContentVisible !== false && !(tab.loading && !tab.canReload)
     ));
+    tab.view.webContents.invalidate();
   } catch {
     // The window or view may be closing.
   }
@@ -2187,7 +2191,9 @@ async function openDetachedInstanceWindow(tab) {
   });
   attachWindowDiagnostics(detachedWindow);
   detachedWindow.webContents.on('page-title-updated', (event) => event.preventDefault());
-  detachedWindow.on('resize', () => applyDetachedInstanceBounds(tab));
+  for (const event of ['resize', 'focus', 'restore']) {
+    detachedWindow.on(event, () => applyDetachedInstanceBounds(tab));
+  }
   await detachedWindow.loadURL(
     `a0app://content/components/docker-manager/instance-tabs/detached.html?tabId=${encodeURIComponent(tab.id)}`
   );
@@ -2493,6 +2499,8 @@ function applyActiveInstanceTabBounds() {
         instanceTabBounds,
         mainWindow.webContents.getZoomFactor()
       ));
+      // Repaint the existing page when its native surface returns from occlusion.
+      tab.view.webContents.invalidate();
     } catch {
       hideInstanceTabView(tab);
     }
@@ -3601,7 +3609,7 @@ async function instanceCredentialsForCliTarget(target) {
 }
 
 async function loginInstanceWebUiSession(target, webContents) {
-  if (!webContents?.session || typeof webContents.session.fetch !== 'function') {
+  if (!webContents?.session) {
     return { attempted: false };
   }
 
@@ -3616,17 +3624,34 @@ async function loginInstanceWebUiSession(target, webContents) {
   if (!request) return { attempted: false };
 
   try {
-    const response = await webContents.session.fetch(request.url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: request.body,
-      redirect: 'manual',
-      credentials: 'include'
+    return await new Promise((resolve) => {
+      // Electron fetch rejects manual redirects, including successful logins.
+      const client = net.request({
+        url: request.url,
+        method: 'POST',
+        session: webContents.session,
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        redirect: 'manual',
+        credentials: 'include'
+      });
+      let settled = false;
+      const finish = (succeeded = false) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        resolve({ attempted: true, succeeded });
+        client.abort();
+      };
+      const timer = setTimeout(() => finish(), 15000);
+      client.once('redirect', (statusCode, method, redirectURL) => {
+        finish(method === 'GET' && instanceLoginRedirectSucceeded(target, {
+          method: 'POST', resourceType: 'mainFrame', url: request.url, statusCode, redirectURL
+        }));
+      });
+      client.once('response', () => finish());
+      client.once('error', () => finish());
+      client.end(request.body);
     });
-    return {
-      attempted: true,
-      succeeded: response.status === 0 || (response.status >= 300 && response.status < 400)
-    };
   } catch {
     return { attempted: true, succeeded: false };
   }
@@ -5808,6 +5833,16 @@ app.on('web-contents-created', (_event, webContents) => {
       : findInstanceTabByWebContents(instanceTabs, webContents);
     const attachedSurface = webContents === mainWindow?.webContents
       || (tab && !tab.detached && tab.id === activeInstanceTabId);
+    const zoomDelta = instanceTabZoomDelta(input);
+    const instanceVisible = tab && !(tab.loading && !tab.canReload) && (tab.detached
+      ? tab.detachedContentVisible !== false
+      : tab.id === activeInstanceTabId && instanceTabBounds);
+    if (zoomDelta !== null && instanceVisible && !tab.view.webContents.isDestroyed()) {
+      event.preventDefault();
+      const contents = tab.view.webContents;
+      contents.setZoomLevel(zoomDelta === 0 ? 0 : contents.getZoomLevel() + zoomDelta);
+      return;
+    }
     if (attachedSurface && (!activeInstanceTabId || instanceTabBounds)) {
       const target = instanceTabShortcutTarget(input, instanceTabs, activeInstanceTabId);
       if (target !== null) {
