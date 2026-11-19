@@ -191,7 +191,7 @@ Two-segment tags such as `v1.10` are the public release shape. Executable builds
 After publishing, verify release assets with:
 
 ```bash
-gh release view <tag> --repo agent0ai/a0-launcher --json assets \
+gh release view <tag> --repo POWERFULMOVES/PMOVES-a0-launcher --json assets \
   --jq '[.assets[].name]'
 ```
 
