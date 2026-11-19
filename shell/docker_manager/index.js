@@ -3164,10 +3164,13 @@ function normalizeActivationOptions(options = {}, tag = '', random = Math.random
   return {
     instanceName: sanitizeInstanceName(raw.instanceName, fallbackName),
     portMappings: hasPortMappings ? parsePortMappings(raw.portMappings) : null,
-    env: withPairedAuthCredentials(
-      (() => { const e = parseEnvText(raw.envText); assertAuthPairing(e); return e; })(),
-      normalizeActivationCredentials(raw)
-    ),
+    // Complete a missing pair from dialog credentials first, then enforce the
+    // pairing invariant on the env that will actually be launched.
+    env: (() => {
+      const e = withPairedAuthCredentials(parseEnvText(raw.envText), normalizeActivationCredentials(raw));
+      assertAuthPairing(e);
+      return e;
+    })(),
     storage: normalizeStorageOverride(raw),
     credentials: normalizeActivationCredentials(raw),
     hostAccess: isPlainObject(raw.hostAccess)
