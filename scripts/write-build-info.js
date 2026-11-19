@@ -5,7 +5,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { execSync } = require("node:child_process");
 
-const DEFAULT_GITHUB_REPO = "agent0ai/a0-launcher";
+const DEFAULT_GITHUB_REPO = "POWERFULMOVES/PMOVES-a0-launcher";
 const OUTPUT_FILE = path.join(__dirname, "..", "shell", "build-info.json");
 
 function safeExec(command) {

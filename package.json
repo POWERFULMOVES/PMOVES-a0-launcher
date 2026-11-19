@@ -1,6 +1,6 @@
 {
   "name": "a0-launcher",
-  "version": "1.9",
+  "version": "1.10",
   "description": "Agent Zero Launcher - Desktop application shell",
   "main": "shell/main.js",
   "scripts": {
@@ -52,8 +52,8 @@
     "npmRebuild": false,
     "publish": {
       "provider": "github",
-      "owner": "agent0ai",
-      "repo": "a0-launcher",
+      "owner": "POWERFULMOVES",
+      "repo": "PMOVES-a0-launcher",
       "releaseType": "release"
     },
     "files": [

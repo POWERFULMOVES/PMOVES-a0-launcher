@@ -91,7 +91,7 @@ module.exports = {
           name: "a0-launcher",
           productName: "Agent Zero Launcher",
           maintainer: "Agent Zero Team",
-          homepage: "https://github.com/agent0ai/a0-launcher",
+          homepage: "https://github.com/POWERFULMOVES/PMOVES-a0-launcher",
           icon: path.join(__dirname, "shell", "assets", "icon.png"),
           categories: ["Development", "Utility"],
         },
